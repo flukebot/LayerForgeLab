@@ -1,0 +1,6 @@
+models
+*.json
+*ubyte
+*.gz
+host
+test
