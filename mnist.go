@@ -17,6 +17,7 @@ const baseURL = "https://storage.googleapis.com/cvdf-datasets/mnist/"
 func mnistStart() {
 	modelMnistSetup()
 	mnistSetup()
+	setupModelTrainingSession()
 }
 
 func mnistSetup() {
@@ -24,6 +25,13 @@ func mnistSetup() {
 	imgDir := "./host/MNIST/images"
 	dataFile := "./host/MNIST/mnist_data.json"
 	imgWidth, imgHeight := 28, 28 // Dimensions for MNIST images
+
+	// Check if the data file already exists
+	if _, err := os.Stat(dataFile); err == nil {
+		fmt.Println("MNIST data file already exists. Skipping image generation and JSON creation.")
+		LoadMNIST()
+		return
+	}
 
 	if err := os.MkdirAll(imgDir, os.ModePerm); err != nil {
 		log.Fatalf("Failed to create MNIST image directory: %v", err)
@@ -112,4 +120,22 @@ func modelMnistSetup() {
 	bp.CreateCustomNetworkConfig(numInputs, numHiddenNeurons, numOutputs, outputActivationTypes, modelID, projectName)
 	fmt.Println("Model setup completed.")
 	fmt.Printf("Total Neurons: %d, Total Layers: %d\n", bp.Config.Metadata.TotalNeurons, bp.Config.Metadata.TotalLayers)
+}
+
+func setupModelTrainingSession() {
+	fmt.Println("Starting to loop through images and labels...")
+
+	for i, image := range Images {
+		label := Labels[i]
+		img := image
+		fmt.Printf("Processing image %d with label %d\n", i, label)
+
+		fmt.Println(label)
+		fmt.Println(img)
+		// Add any processing logic for each image and label here
+		// For example, passing the image and label into a model training function
+		// model.Train(image, label) // Example placeholder
+	}
+
+	fmt.Println("Completed processing all images and labels.")
 }
