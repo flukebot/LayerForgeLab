@@ -12,12 +12,17 @@ var bp *blueprint.Blueprint
 var Images [][]byte
 var Labels []byte
 
+// Declare slices to store training and testing sessions
+var TrainingSessions []blueprint.TrainingSession
+var TestingSessions []blueprint.TrainingSession
+
 const baseURL = "https://storage.googleapis.com/cvdf-datasets/mnist/"
 
 func mnistStart() {
 	modelMnistSetup()
 	mnistSetup()
 	setupModelTrainingSession()
+	evaluateModelPerformance()
 }
 
 func mnistSetup() {
@@ -116,6 +121,9 @@ func modelMnistSetup() {
 	modelID := "mnist-model-001"
 	projectName := "MNIST Digit Classification"
 
+	// Set the forgiveness threshold
+	bp.Config.Metadata.ForgivenessThreshold = 0.8 // Example: 80% tolerance threshold
+
 	// Call CreateCustomNetworkConfig to set up the model structure
 	bp.CreateCustomNetworkConfig(numInputs, numHiddenNeurons, numOutputs, outputActivationTypes, modelID, projectName)
 	fmt.Println("Model setup completed.")
@@ -123,19 +131,89 @@ func modelMnistSetup() {
 }
 
 func setupModelTrainingSession() {
-	fmt.Println("Starting to loop through images and labels...")
+	fmt.Println("Starting to split data into training and testing sessions...")
 
-	for i, image := range Images {
-		label := Labels[i]
-		img := image
-		fmt.Printf("Processing image %d with label %d\n", i, label)
+	// Calculate split index for 80/20 split
+	totalImages := len(Images)
+	splitIndex := int(float64(totalImages) * 0.8)
 
-		fmt.Println(label)
-		fmt.Println(img)
-		// Add any processing logic for each image and label here
-		// For example, passing the image and label into a model training function
-		// model.Train(image, label) // Example placeholder
+	// Print details about the split
+	fmt.Printf("Total images: %d\n", totalImages)
+	fmt.Printf("80%% of images (training set): %d\n", splitIndex)
+	fmt.Printf("20%% of images (testing set): %d\n", totalImages-splitIndex)
+
+	// Loop through images and labels for training sessions (80%)
+	for i := 0; i < splitIndex; i++ {
+		session := createTrainingSession(i)
+		TrainingSessions = append(TrainingSessions, session)
 	}
 
+	// Loop through remaining images and labels for testing sessions (20%)
+	for i := splitIndex; i < totalImages; i++ {
+		session := createTrainingSession(i)
+		TestingSessions = append(TestingSessions, session)
+	}
+
+	fmt.Printf("Training sessions count: %d\n", len(TrainingSessions))
+	fmt.Printf("Testing sessions count: %d\n", len(TestingSessions))
 	fmt.Println("Completed processing all images and labels.")
+}
+
+// createTrainingSession creates a TrainingSession for a given index
+func createTrainingSession(index int) blueprint.TrainingSession {
+	label := Labels[index]
+	expectedOutput := map[string]interface{}{
+		"label": float64(label), // Convert label to float64
+	}
+	inputVariables := map[string]interface{}{
+		"image": Images[index],
+	}
+
+	// Initialize and return the TrainingSession struct
+	return blueprint.TrainingSession{
+		InputVariables:   inputVariables,
+		SavedLayerStates: []blueprint.LayerState{}, // Initially empty, can add states during training
+		ExpectedOutput:   expectedOutput,
+		Learned:          false,
+	}
+}
+
+func evaluateModelPerformance() {
+	fmt.Println("Evaluating model performance on the training set...")
+	// Capture all six values for training set evaluation
+	trainingExactAccuracy, trainingGenerousAccuracy, trainingForgivenessAccuracy,
+		trainingExactErrorCount, trainingAverageGenerousError, trainingForgivenessErrorCount := bp.EvaluateModelPerformance(TrainingSessions)
+
+	fmt.Printf("Training set exact accuracy: %.2f%%, Exact errors: %.0f\n", trainingExactAccuracy, trainingExactErrorCount)
+	fmt.Printf("Training set generous accuracy: %.2f%%, Average generous error: %.2f\n", trainingGenerousAccuracy, trainingAverageGenerousError)
+	fmt.Printf("Training set forgiveness accuracy: %.2f%%, Forgiveness errors: %.0f\n\n", trainingForgivenessAccuracy, trainingForgivenessErrorCount)
+
+	fmt.Println("Evaluating model performance on the testing set...")
+	// Capture all six values for testing set evaluation
+	testingExactAccuracy, testingGenerousAccuracy, testingForgivenessAccuracy,
+		testingExactErrorCount, testingAverageGenerousError, testingForgivenessErrorCount := bp.EvaluateModelPerformance(TestingSessions)
+
+	fmt.Printf("Testing set exact accuracy: %.2f%%, Exact errors: %.0f\n", testingExactAccuracy, testingExactErrorCount)
+	fmt.Printf("Testing set generous accuracy: %.2f%%, Average generous error: %.2f\n", testingGenerousAccuracy, testingAverageGenerousError)
+	fmt.Printf("Testing set forgiveness accuracy: %.2f%%, Forgiveness errors: %.0f\n\n", testingForgivenessAccuracy, testingForgivenessErrorCount)
+
+	// Update model metadata with accuracy and error metrics
+	bp.Config.Metadata.LastTrainingAccuracy = trainingExactAccuracy
+	bp.Config.Metadata.LastTestAccuracy = testingExactAccuracy
+	bp.Config.Metadata.LastTestAccuracyGenerous = testingGenerousAccuracy
+	bp.Config.Metadata.LastTestAccuracyForgiveness = testingForgivenessAccuracy
+
+	// Update model metadata with error metrics
+	bp.Config.Metadata.LastTrainingExactErrorCount = trainingExactErrorCount
+	bp.Config.Metadata.LastTestExactErrorCount = testingExactErrorCount
+	bp.Config.Metadata.LastTrainingAverageGenerousError = trainingAverageGenerousError
+	bp.Config.Metadata.LastTestAverageGenerousError = testingAverageGenerousError
+	bp.Config.Metadata.LastTrainingForgivenessErrorCount = trainingForgivenessErrorCount
+	bp.Config.Metadata.LastTestForgivenessErrorCount = testingForgivenessErrorCount
+
+	// Save training and testing sessions to metadata
+	bp.Config.Metadata.TrainingSessions = TrainingSessions
+	bp.Config.Metadata.TestingSessions = TestingSessions
+
+	fmt.Println("Model performance evaluation completed and metadata updated.")
 }
