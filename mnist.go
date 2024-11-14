@@ -22,6 +22,15 @@ func mnistStart() {
 	modelMnistSetup()
 	mnistSetup()
 	setupModelTrainingSession()
+
+	// Training and fine-tuning the dense layer (e.g., the first hidden layer)
+	layerIndex := 0 // Index of the dense layer to be trained
+	fmt.Println("Training dense layer with fine-grained accuracy and error metrics...")
+	bp.TrainDenseLayer(layerIndex, TrainingSessions) // Train layer with the defined training sessions
+
+	// Test feedforward output variability
+	testFeedforwardOutputVariability()
+
 	evaluateModelPerformance()
 }
 
@@ -116,13 +125,15 @@ func modelMnistSetup() {
 	outputActivationTypes := []string{
 		"sigmoid", "sigmoid", "sigmoid", "sigmoid", "sigmoid",
 		"sigmoid", "sigmoid", "sigmoid", "sigmoid", "sigmoid",
-	} // Activation type for output layer
+	}
 
 	modelID := "mnist-model-001"
 	projectName := "MNIST Digit Classification"
 
-	// Set the forgiveness threshold
-	bp.Config.Metadata.ForgivenessThreshold = 0.8 // Example: 80% tolerance threshold
+	// Set the forgiveness threshold and adjustment increments
+	bp.Config.Metadata.ForgivenessThreshold = 0.8      // Example: 80% tolerance threshold
+	bp.Config.Metadata.BiasAdjustmentIncrement = 10    // Example bias adjustment
+	bp.Config.Metadata.WeightAdjustmentIncrement = 0.5 // Example weight adjustment
 
 	// Call CreateCustomNetworkConfig to set up the model structure
 	bp.CreateCustomNetworkConfig(numInputs, numHiddenNeurons, numOutputs, outputActivationTypes, modelID, projectName)
@@ -146,12 +157,19 @@ func setupModelTrainingSession() {
 	for i := 0; i < splitIndex; i++ {
 		session := createTrainingSession(i)
 		TrainingSessions = append(TrainingSessions, session)
+
+		if i >= 100 {
+			break
+		}
 	}
 
 	// Loop through remaining images and labels for testing sessions (20%)
 	for i := splitIndex; i < totalImages; i++ {
 		session := createTrainingSession(i)
 		TestingSessions = append(TestingSessions, session)
+		if i >= 100 {
+			break
+		}
 	}
 
 	fmt.Printf("Training sessions count: %d\n", len(TrainingSessions))
@@ -162,11 +180,25 @@ func setupModelTrainingSession() {
 // createTrainingSession creates a TrainingSession for a given index
 func createTrainingSession(index int) blueprint.TrainingSession {
 	label := Labels[index]
-	expectedOutput := map[string]interface{}{
-		"label": float64(label), // Convert label to float64
+	// Create one-hot encoded expected output
+	expectedOutput := make(map[string]interface{})
+	for i := 0; i < 10; i++ {
+		if i == int(label) {
+			expectedOutput[fmt.Sprintf("class_%d", i)] = 1.0
+		} else {
+			expectedOutput[fmt.Sprintf("class_%d", i)] = 0.0
+		}
 	}
+
+	// Flatten the image into a 1D array for dense input compatibility
+	imageData := make([]float64, len(Images[index]))
+	for i, pixel := range Images[index] {
+		imageData[i] = float64(pixel) / 255.0 // Normalize pixel values between 0 and 1
+	}
+
+	// Prepare inputVariables for universal input handling in Feedforward
 	inputVariables := map[string]interface{}{
-		"image": Images[index],
+		"input": imageData, // The flattened array, compatible with dense layers
 	}
 
 	// Initialize and return the TrainingSession struct
@@ -216,4 +248,57 @@ func evaluateModelPerformance() {
 	bp.Config.Metadata.TestingSessions = TestingSessions
 
 	fmt.Println("Model performance evaluation completed and metadata updated.")
+}
+
+// testFeedforwardOutputVariability tests if different inputs produce different outputs in the feedforward process.
+func testFeedforwardOutputVariability() {
+	fmt.Println("Testing Feedforward Output Variability...")
+
+	if len(TrainingSessions) < 2 {
+		fmt.Println("Not enough training sessions to test variability.")
+		return
+	}
+
+	// Select a few sessions to compare
+	session1 := TrainingSessions[0]
+	session2 := TrainingSessions[1]
+
+	// Feed forward the input of session1 with debug statements
+	fmt.Println("Running feedforward for session 1")
+	output1 := bp.Feedforward(session1.InputVariables)
+	if len(output1) == 0 {
+		fmt.Println("Warning: Output for session 1 is empty; check network processing.")
+	} else {
+		fmt.Printf("Output for session 1 (Label: %v): %v\n", session1.ExpectedOutput, output1)
+	}
+
+	// Feed forward the input of session2 with debug statements
+	fmt.Println("Running feedforward for session 2")
+	output2 := bp.Feedforward(session2.InputVariables)
+	if len(output2) == 0 {
+		fmt.Println("Warning: Output for session 2 is empty; check network processing.")
+	} else {
+		fmt.Printf("Output for session 2 (Label: %v): %v\n", session2.ExpectedOutput, output2)
+	}
+
+	// Compare outputs
+	if compareOutputs(output1, output2) {
+		fmt.Println("Outputs are identical; potential issue with variability.")
+	} else {
+		fmt.Println("Outputs are different; feedforward process appears to be working correctly.")
+	}
+}
+
+// compareOutputs checks if two output maps are the same
+func compareOutputs(output1, output2 map[string]float64) bool {
+	if len(output1) != len(output2) {
+		return false
+	}
+
+	for key, value1 := range output1 {
+		if value2, exists := output2[key]; !exists || value1 != value2 {
+			return false
+		}
+	}
+	return true
 }
