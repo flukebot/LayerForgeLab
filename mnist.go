@@ -19,14 +19,36 @@ var TestingSessions []blueprint.TrainingSession
 const baseURL = "https://storage.googleapis.com/cvdf-datasets/mnist/"
 
 func mnistStart() {
-	modelMnistSetup()
+	modelMnistSetupWithMutations()
 	mnistSetup()
 	setupModelTrainingSession()
 
+	bp.PrintAllMetadata()
+
+	// Apply a limited number of mutations
+	/*numMutations := 10 // For example, apply up to 2 mutations
+	for i := 0; i < numMutations; i++ {
+		bp.ApplySingleMutation(
+			bp.Config.Metadata.PossibleMutations,
+			bp.Config.Metadata.NeuronRange,
+			bp.Config.Metadata.LayerRange,
+			false, // Do not reattach output layer after each mutation
+		)
+	}
+
+	// Reattach the output layer after all mutations
+	previousOutputActivationTypes := bp.GetPreviousOutputActivationTypes()
+	bp.ReattachOutputLayerZeroBias(len(previousOutputActivationTypes), previousOutputActivationTypes)
+	bp.UpdateNeuronAndLayerCounts()
+	fmt.Printf("After mutation, Total Neurons: %d, Total Layers: %d\n", bp.Config.Metadata.TotalNeurons, bp.Config.Metadata.TotalLayers)
+	*/
+
+	// Start the loop to add layers and re-evaluate the model
+	bp.LoopLayersAndReevaluate(90.0, 10)
 	// Training and fine-tuning the dense layer (e.g., the first hidden layer)
-	layerIndex := 0 // Index of the dense layer to be trained
-	fmt.Println("Training dense layer with fine-grained accuracy and error metrics...")
-	bp.TrainDenseLayer(layerIndex, TrainingSessions) // Train layer with the defined training sessions
+	//layerIndex := 0 // Index of the dense layer to be trained
+	//fmt.Println("Training dense layer with fine-grained accuracy and error metrics...")
+	//bp.TrainDenseLayer(layerIndex, TrainingSessions) // Train layer with the defined training sessions
 
 	// Test feedforward output variability
 	testFeedforwardOutputVariability()
@@ -130,14 +152,70 @@ func modelMnistSetup() {
 	modelID := "mnist-model-001"
 	projectName := "MNIST Digit Classification"
 
-	// Set the forgiveness threshold and adjustment increments
-	bp.Config.Metadata.ForgivenessThreshold = 0.8      // Example: 80% tolerance threshold
-	bp.Config.Metadata.BiasAdjustmentIncrement = 10    // Example bias adjustment
-	bp.Config.Metadata.WeightAdjustmentIncrement = 0.5 // Example weight adjustment
-
 	// Call CreateCustomNetworkConfig to set up the model structure
 	bp.CreateCustomNetworkConfig(numInputs, numHiddenNeurons, numOutputs, outputActivationTypes, modelID, projectName)
+
+	// Set the forgiveness threshold and adjustment increments
+	bp.Config.Metadata.ForgivenessThreshold = 0.8       // Example: 80% tolerance threshold
+	bp.Config.Metadata.BiasAdjustmentIncrement = 0.05   // Example bias adjustment
+	bp.Config.Metadata.WeightAdjustmentIncrement = 0.05 // Example weight adjustment
+
+	// **Set the possible mutations in the metadata**
+	bp.Config.Metadata.PossibleMutations = []string{
+		"AppendNewLayer",
+		//"AppendMultipleLayers",
+		//"AppendCNNAndDenseLayer",
+		//"AppendLSTMLayer",
+	}
+
+	// Set layer and neuron ranges in metadata
+	bp.Config.Metadata.LayerRange = [2]int{1, 3}                      // Set to 0 to prevent adding layers
+	bp.Config.Metadata.NeuronRange = [2]int{numInputs, numInputs * 2} // Set to 0 to prevent adding neurons
+
 	fmt.Println("Model setup completed.")
+	fmt.Printf("Total Neurons: %d, Total Layers: %d\n", bp.Config.Metadata.TotalNeurons, bp.Config.Metadata.TotalLayers)
+}
+
+// modelMnistSetupWithMutations initializes the Blueprint instance and sets up the model configuration
+// using dynamic layer creation with mutations.
+func modelMnistSetupWithMutations() {
+	// Initialize bp with a new Blueprint instance
+	bp = blueprint.NewBlueprint(nil)
+
+	// Configure model parameters
+	numInputs := 28 * 28 // Example for MNIST data, 28x28 images
+	numOutputs := 10     // Number of classes (0-9 for MNIST)
+	numMutations := 5    // Number of mutations to apply, which dynamically adds layers
+
+	outputActivationTypes := []string{
+		"sigmoid", "sigmoid", "sigmoid", "sigmoid", "sigmoid",
+		"sigmoid", "sigmoid", "sigmoid", "sigmoid", "sigmoid",
+	}
+
+	modelID := "mnist-model-001"
+	projectName := "MNIST Digit Classification"
+
+	// Define mutation configuration
+	possibleMutations := []string{
+		"AppendNewLayer",
+		// Add more mutation types as needed
+	}
+	neuronRange := [2]int{numInputs, numInputs * 2} // Range for neurons in hidden layers
+	layerRange := [2]int{1, 5}                      // Range for layers to add
+
+	// Call GenerateModelWithMutations to set up the model structure with mutations
+	bp.GenerateModelWithMutations(
+		numInputs, numOutputs, numMutations,
+		outputActivationTypes, modelID, projectName,
+		possibleMutations, neuronRange, layerRange,
+	)
+
+	// Set the forgiveness threshold and adjustment increments
+	bp.Config.Metadata.ForgivenessThreshold = 0.8       // Example: 80% tolerance threshold
+	bp.Config.Metadata.BiasAdjustmentIncrement = 0.05   // Example bias adjustment
+	bp.Config.Metadata.WeightAdjustmentIncrement = 0.05 // Example weight adjustment
+
+	fmt.Println("Model setup with mutations completed.")
 	fmt.Printf("Total Neurons: %d, Total Layers: %d\n", bp.Config.Metadata.TotalNeurons, bp.Config.Metadata.TotalLayers)
 }
 
